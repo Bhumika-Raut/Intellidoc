@@ -248,3 +248,5 @@ See [INTERVIEW.md](./INTERVIEW.md) for implementation-grounded answers to common
 - Built IntelliDocs, a Generative AI RAG assistant in Python/FastAPI that chunks PDFs and text, embeds via a swappable provider layer (mock/offline or OpenAI-compatible API), and retrieves context from a pluggable vector store (built-in or ChromaDB) before calling an LLM.
 - Implemented cited Q&A, semantic search, document comparison, structured insight extraction, and action-item generation over REST APIs with provider-agnostic LLM and embedding layers.
 - Shipped a Next.js/TypeScript SaaS UI (upload pipeline, streaming chat, light/dark mode) backed by SQLite metadata and production-minded upload validation.
+#   I n t e l l i d o c  
+ 
