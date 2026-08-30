@@ -1,0 +1,1 @@
+"""IntelliDocs backend application package."""
