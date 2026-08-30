@@ -1,117 +1,468 @@
-# IntelliDocs
+# IntelliDocs — AI Document Intelligence & RAG Assistant
 
-IntelliDocs is a retrieval-augmented generation (RAG) web app that turns uploaded PDFs, Word files, and text into a cited knowledge base. You ask questions in natural language; the system retrieves relevant chunks from the vector store, then an LLM answers **only** from that context.
+> **Ask questions about your documents. Get grounded answers with sources.**
 
-This is a portfolio-grade implementation of how production LLM applications are actually built: ingestion, chunking, embeddings, vector search, prompt templates, structured outputs, and source attribution — not a ChatGPT clone with a file picker.
+IntelliDocs is a **Retrieval-Augmented Generation (RAG)** web application that transforms uploaded PDFs, Word documents, and text files into an AI-powered knowledge base.
 
-## Problem
+Instead of sending an entire document to an LLM, IntelliDocs extracts the content, splits it into meaningful chunks, creates embeddings, retrieves the most relevant information, and provides the retrieved context to an LLM to generate a **grounded, cited response**.
 
-Searching a folder of requirements, handbooks, and specs is slow and unreliable. Keyword search misses paraphrases. Dropping an entire document into a long-context model is expensive, hits token limits, and still hallucinates. Teams need answers that point back to **which file and page** supported the claim.
+The project demonstrates how modern GenAI applications can be built beyond a simple chatbot or file-upload interface.
 
-## Solution
+---
 
-IntelliDocs implements a classic RAG pipeline:
+## ✨ Why IntelliDocs?
 
-1. Extract and clean text from each upload.
-2. Split into overlapping chunks with metadata (document id, filename, page/section, chunk index).
-3. Embed chunks once and store them in the vector store (pluggable: built-in local store by default, ChromaDB optional).
-4. Embed each user question and retrieve the top-k similar chunks.
-5. Generate an answer from those chunks only, with inline citations.
-6. If retrieval cannot support the question, return a fixed refusal sentence.
+Searching through large collections of documents can be slow and unreliable.
 
-## Features
+Traditional keyword search can miss questions that use different wording, while sending entire documents to an LLM can be expensive, inefficient, and increase the risk of hallucinations.
 
-- Document upload (drag-and-drop) for PDF, DOCX, TXT, Markdown
-- Processing status, metadata, chunk counts, delete
-- Semantic Q&A with streaming (when the provider supports it)
-- Source citations (filename, page, excerpt, similarity score)
-- Executive summaries
-- Side-by-side document comparison (similarities, differences, contradictions)
-- Structured insight extraction (people, orgs, dates, risks, …)
-- Action items with priority and source
-- Semantic search across the knowledge base
-- Dashboard with documents, chunks, questions, summaries
-- Light and dark UI
-- Provider abstraction for LLMs and embeddings
+IntelliDocs solves this using **RAG**:
 
-## Architecture
+```text
+Upload Document
+      ↓
+Extract Text
+      ↓
+Chunk Document
+      ↓
+Generate Embeddings
+      ↓
+Store Vectors
+      ↓
+User Question
+      ↓
+Retrieve Relevant Chunks
+      ↓
+LLM + Retrieved Context
+      ↓
+Grounded Answer + Citations
+```
+
+The LLM receives **only the relevant retrieved content**, rather than the entire original document.
+
+---
+
+# 🚀 Features
+
+### 📄 Document Intelligence
+
+* Upload PDF, DOCX, TXT, and Markdown files
+* Drag-and-drop document upload
+* Automatic text extraction
+* Document chunking with configurable overlap
+* Processing status and metadata
+* Document deletion
+* Chunk count and document statistics
+
+### 💬 RAG-powered Q&A
+
+* Ask questions using natural language
+* Semantic retrieval from uploaded documents
+* Top-k relevant chunk retrieval
+* Grounded LLM responses
+* Unsupported-question refusal
+* Streaming responses when supported by the LLM provider
+
+### 🔎 Source Citations
+
+Every retrieved source can include:
+
+* Document filename
+* Page or section
+* Text excerpt
+* Similarity score
+* Source number referenced in the answer
+
+This makes AI responses easier to verify and helps reduce unsupported claims.
+
+### 📊 Document Analysis
+
+* Executive document summaries
+* Side-by-side document comparison
+* Similarity and difference detection
+* Contradiction identification
+* Structured insight extraction
+* People, organizations, dates, risks, and other entities
+* AI-generated action items
+* Priority-based action items
+
+### 🔍 Semantic Search
+
+Search the entire knowledge base using meaning rather than exact keyword matches.
+
+For example:
+
+```text
+"What is the company's vacation policy?"
+```
+
+can retrieve content containing:
+
+```text
+"Employees are entitled to 20 days of annual leave..."
+```
+
+even though the wording is different.
+
+### 🎨 Modern Web Interface
+
+* Next.js frontend
+* Responsive UI
+* Light and dark themes
+* Dashboard
+* Document management
+* AI chat interface
+* Source/citation display
+* Document comparison interface
+
+---
+
+# 🧠 RAG Architecture
 
 ```mermaid
 flowchart TD
-  User --> FE[Next.js frontend]
-  FE --> API[FastAPI]
-  API --> DP[Document processing]
-  DP --> CH[Chunking]
-  CH --> EM[Embeddings]
-  EM --> VS[Vector store]
-  FE --> Q[Question]
-  Q --> API
-  API --> R[Retriever]
-  R --> VS
-  R --> LLM[LLM provider]
-  LLM --> Cited[Cited response]
-  Cited --> FE
+    U[User] --> FE[Next.js Frontend]
+
+    FE --> API[FastAPI Backend]
+
+    API --> ING[Document Processing]
+    ING --> EXT[Text Extraction]
+    EXT --> CH[Chunking]
+    CH --> EMB[Embedding Provider]
+    EMB --> VS[Vector Store]
+
+    FE --> Q[User Question]
+    Q --> API
+
+    API --> RET[Retriever]
+    RET --> VS
+    RET --> CTX[Relevant Context]
+
+    CTX --> LLM[LLM Provider]
+    LLM --> RES[Grounded Response]
+
+    RES --> CIT[Citations]
+    CIT --> FE
+
+    API --> DB[(SQLite)]
 ```
 
-SQLite stores documents, conversations, and query logs. Vector embeddings live in the pluggable vector store (default: built-in JSON-persisted cosine store; ChromaDB optional). The LLM never sees the raw file bytes — only retrieved text.
+---
 
-## RAG pipeline
+# 🔄 How the RAG Pipeline Works
 
-1. **Ingestion** — Validated upload is stored on disk (never executed). Text is extracted with pypdf, python-docx, or UTF-8/latin-1 for text/markdown.
-2. **Chunking** — ~900 characters with 150-character overlap, preferring paragraph and sentence boundaries. Page/section metadata is kept on each chunk.
-3. **Embeddings** — Provider abstraction: `MockEmbeddingProvider` (deterministic, zero downloads; default for dev/tests) or `APIEmbeddingProvider` (OpenAI-compatible endpoint, for production).
-4. **Retrieval** — Query embedding → cosine search in the vector store → top-k (default 5), with a weak-score floor.
-5. **Generation** — System prompt requires grounded answers and a fixed refusal if context is insufficient.
-6. **Citation** — Each retrieved chunk is numbered `[1]…[n]` in the prompt; the UI lists filename, page, excerpt, and score.
+## 1. Document ingestion
 
-## Tech stack
+A user uploads a document.
 
-| Layer | What is actually used |
-| --- | --- |
-| Frontend | Next.js 14, React 18, TypeScript, Tailwind CSS |
-| Backend | Python, FastAPI, Pydantic, SQLAlchemy |
-| Database | SQLite (portable to PostgreSQL) |
-| Vectors | Built-in `LocalVectorStore` (JSON persistence, cosine) by default; ChromaDB optional via `VECTOR_STORE=chroma` |
-| Embeddings | `MockEmbeddingProvider` (default, no downloads) / `APIEmbeddingProvider` (OpenAI-compatible API) — no PyTorch anywhere |
-| LLM | OpenAI-compatible API (Groq or OpenAI) plus a `MockProvider` for tests |
-| Tests | pytest + FastAPI TestClient |
+Supported formats:
 
-## Installation
+```text
+PDF
+DOCX
+TXT
+Markdown
+```
 
-### Prerequisites
+The backend validates the file, sanitizes its filename, stores it safely, and extracts its text.
 
-- Python 3.11+
-- Node.js 20+
-- A Groq or OpenAI API key for live generation and, if you set `EMBEDDING_PROVIDER=api`, embeddings. With `LLM_PROVIDER=mock` + `EMBEDDING_PROVIDER=mock` the whole app runs with no keys at all.
+---
 
-### 1. Clone and environment
+## 2. Chunking
+
+Large documents are divided into smaller overlapping chunks.
+
+Default configuration:
+
+```text
+Chunk size:     900 characters
+Overlap:        150 characters
+Top-K retrieval: 5 chunks
+```
+
+Metadata is preserved with each chunk:
+
+```text
+document ID
+filename
+page / section
+chunk index
+```
+
+This allows retrieved content to be traced back to its original source.
+
+---
+
+## 3. Embeddings
+
+Each chunk can be converted into an embedding vector.
+
+IntelliDocs uses an abstraction layer:
+
+```text
+EmbeddingProvider
+       │
+       ├── MockEmbeddingProvider
+       │
+       └── APIEmbeddingProvider
+```
+
+The mock provider is used for development and testing without downloading large ML models.
+
+The API provider supports OpenAI-compatible embedding endpoints for production use.
+
+---
+
+## 4. Vector storage
+
+Embeddings are stored using a pluggable vector-store architecture:
+
+```text
+VectorStore
+     │
+     ├── LocalVectorStore
+     │
+     └── ChromaVectorStore
+```
+
+The default implementation is a lightweight local vector store using cosine similarity and JSON persistence.
+
+ChromaDB can be enabled when required.
+
+---
+
+## 5. Retrieval
+
+When a user asks a question:
+
+```text
+Question
+   ↓
+Question embedding
+   ↓
+Vector similarity search
+   ↓
+Top-K relevant chunks
+```
+
+The most relevant chunks are selected and passed to the generation layer.
+
+---
+
+## 6. Generation
+
+The retrieved context is provided to the LLM with instructions to answer using the supplied information.
+
+Conceptually:
+
+```text
+System Instructions
+        +
+Retrieved Context
+        +
+User Question
+        ↓
+       LLM
+        ↓
+Grounded Answer
+```
+
+If the retrieved context cannot support the question, IntelliDocs returns a refusal instead of allowing the model to invent an answer.
+
+---
+
+## 7. Citations
+
+Retrieved chunks are numbered and included in the generation context.
+
+The response can reference sources such as:
+
+```text
+[1] Product Technical Specification — Section 3
+[2] Employee Handbook — Page 14
+```
+
+The UI exposes the corresponding excerpts and similarity information.
+
+---
+
+# 🛠️ Tech Stack
+
+| Layer               | Technology                               |
+| ------------------- | ---------------------------------------- |
+| Frontend            | Next.js, React, TypeScript, Tailwind CSS |
+| Backend             | Python, FastAPI, Pydantic, SQLAlchemy    |
+| Database            | SQLite                                   |
+| Vector Store        | LocalVectorStore / ChromaDB              |
+| Embeddings          | Mock / OpenAI-compatible API             |
+| LLM                 | Groq / OpenAI-compatible API / Mock      |
+| Document Processing | pypdf, python-docx                       |
+| Testing             | pytest, FastAPI TestClient               |
+| Version Control     | Git, GitHub                              |
+
+---
+
+# 📁 Project Structure
+
+```text
+intellidocs-ai/
+│
+├── backend/
+│   ├── app/
+│   │   ├── embeddings/
+│   │   ├── vectorstore/
+│   │   ├── ...
+│   │   └── main.py
+│   │
+│   ├── tests/
+│   ├── requirements.txt
+│   └── .env.example
+│
+├── frontend/
+│   ├── app/
+│   ├── components/
+│   ├── lib/
+│   └── package.json
+│
+├── data/
+│   └── sample_documents/
+│
+├── docs/
+│   └── screenshots/
+│
+├── eval/
+│   └── evaluate.py
+│
+├── INTERVIEW.md
+├── README.md
+├── docker-compose.yml
+└── .gitignore
+```
+
+---
+
+# ⚙️ Getting Started
+
+## Prerequisites
+
+Install:
+
+* Python 3.11+
+* Node.js 20+
+* npm
+
+A Groq or OpenAI API key is required for live LLM generation.
+
+The application can also run in mock mode without API keys.
+
+---
+
+## 1. Clone the repository
 
 ```bash
-cd Gen-ai
+git clone https://github.com/Bhumika-Raut/Intellidoc.git
+cd Intellidoc
+```
+
+---
+
+## 2. Configure environment variables
+
+Create a `.env` file from the example:
+
+### Windows
+
+```powershell
 copy .env.example .env
 ```
 
-On macOS/Linux use `cp .env.example .env`.
+### macOS / Linux
 
-Edit `.env`:
+```bash
+cp .env.example .env
+```
 
-- For **Groq** (free tier): set `LLM_PROVIDER=groq`, `GROQ_API_KEY=...`, `LLM_MODEL=llama-3.1-8b-instant`
-- For **OpenAI**: set `LLM_PROVIDER=openai`, `OPENAI_API_KEY=...`, `LLM_MODEL=gpt-4o-mini`
-- Leave `EMBEDDING_PROVIDER=mock` for zero-setup runs; set it to `api` (with `EMBEDDING_API_KEY`) for real semantic retrieval
+For a zero-configuration development setup:
 
-### 2. Backend
+```env
+LLM_PROVIDER=mock
+EMBEDDING_PROVIDER=mock
+VECTOR_STORE=local
+```
+
+For Groq:
+
+```env
+LLM_PROVIDER=groq
+GROQ_API_KEY=your_api_key
+LLM_MODEL=llama-3.1-8b-instant
+```
+
+For OpenAI:
+
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_api_key
+LLM_MODEL=gpt-4o-mini
+```
+
+**Never commit API keys or `.env` files to GitHub.**
+
+---
+
+# ▶️ Running the Backend
+
+From the repository root:
 
 ```bash
 cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Nothing extra to download: mock embeddings and the built-in vector store need no model weights.
+Create a virtual environment:
 
-### 3. Frontend
+### Windows
+
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+### macOS / Linux
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start the API:
+
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+Backend:
+
+```text
+http://localhost:8000
+```
+
+Swagger API documentation:
+
+```text
+http://localhost:8000/docs
+```
+
+---
+
+# ▶️ Running the Frontend
+
+Open another terminal:
 
 ```bash
 cd frontend
@@ -119,134 +470,241 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The UI talks to [http://localhost:8000](http://localhost:8000). **No API keys are shipped to the browser.**
+Open:
 
-## Environment variables
-
-| Variable | Purpose |
-| --- | --- |
-| `LLM_PROVIDER` | `groq`, `openai`, or `mock` |
-| `LLM_MODEL` | Chat model name |
-| `GROQ_API_KEY` | Groq key (backend only) |
-| `OPENAI_API_KEY` | OpenAI key (backend only) |
-| `OPENAI_BASE_URL` | Optional custom OpenAI-compatible base URL |
-| `EMBEDDING_PROVIDER` | `mock` (default, offline) or `api` (OpenAI-compatible) |
-| `EMBEDDING_MODEL` | Embedding model name used by the API provider (e.g. `text-embedding-3-small`) |
-| `EMBEDDING_API_KEY` / `EMBEDDING_API_BASE` | Embeddings API credentials (fall back to `OPENAI_API_KEY` / `OPENAI_BASE_URL`) |
-| `DATABASE_URL` | SQLAlchemy URL (SQLite by default) |
-| `VECTOR_STORE` | `local` (default, dependency-free) or `chroma` (optional extra) |
-| `VECTOR_PATH` | Persistence directory for the local vector store |
-| `UPLOAD_DIR` | Stored uploads |
-| `MAX_UPLOAD_MB` | Upload size limit |
-| `CORS_ORIGINS` | Allowed browser origins |
-| `RETRIEVAL_TOP_K` | How many chunks to pass the LLM |
-| `CHUNK_SIZE` / `CHUNK_OVERLAP` | Ingestion chunking |
-| `NEXT_PUBLIC_API_URL` | Frontend → API origin (not a secret) |
-
-## Running locally
-
-Terminal A (from `backend/`):
-
-```bash
-uvicorn app.main:app --reload --port 8000
+```text
+http://localhost:3000
 ```
 
-Terminal B (from `frontend/`):
+---
 
-```bash
-npm run dev
-```
+# 🧪 Running Tests
 
-### Docker
-
-From the repository root, with a populated `.env`:
-
-```bash
-docker compose up --build
-```
-
-Backend image builds are quick: requirements.txt pulls no PyTorch and no model weights.
-
-## API documentation
-
-With the backend running, open:
-
-- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
-- OpenAPI JSON: [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
-
-Notable routes: `POST /api/documents/upload`, `GET /api/documents`, `POST /api/chat`, `POST /api/chat/stream`, `POST /api/search`, `POST /api/documents/compare`, `POST /api/documents/{id}/summarize`, `POST /api/documents/{id}/extract-insights`, `POST /api/documents/{id}/action-items`.
-
-## Tests
-
-From the repository root (uses `LLM_PROVIDER=mock` and `EMBEDDING_PROVIDER=mock` — no paid API, no downloads):
+From the repository root:
 
 ```bash
 cd backend
-pip install -r requirements.txt
-cd ..
 pytest
 ```
 
-## Evaluation
+The test suite covers areas including:
 
-```bash
-cd backend
-set LLM_PROVIDER=mock
-python -m eval.evaluate
+* Document processing
+* Document CRUD
+* RAG workflow
+* Embedding providers
+* Vector-store operations
+* Retrieval
+* Error handling
+* Empty vector stores
+* Persistence
+
+The tests can run using the mock providers without downloading large ML models or requiring paid APIs.
+
+---
+
+# 📡 API
+
+The backend exposes REST APIs through FastAPI.
+
+Important endpoints include:
+
+```text
+POST   /api/documents/upload
+GET    /api/documents
+POST   /api/chat
+POST   /api/chat/stream
+POST   /api/search
+POST   /api/documents/compare
+POST   /api/documents/{id}/summarize
+POST   /api/documents/{id}/extract-insights
+POST   /api/documents/{id}/action-items
 ```
 
-Reports retrieval hit rate, answer relevance, citation presence, and unsupported-question refusal. Point `LLM_PROVIDER` at Groq/OpenAI to score a real model.
+Interactive API documentation:
 
-## Sample documents
+```text
+http://localhost:8000/docs
+```
 
-Original demo files (not copied from copyrighted products):
+---
 
-- `data/sample_documents/software_project_requirements.md`
-- `data/sample_documents/employee_handbook.md`
-- `data/sample_documents/product_technical_specification.md`
-- `data/sample_documents/product_technical_specification_v2.md` (for Compare)
+# 🔐 Security Considerations
 
-## 2-minute demo
+IntelliDocs follows several basic security practices:
 
-1. Open `/dashboard`.
-2. Go to **Documents** and upload `product_technical_specification.md`.
-3. Wait until status is **Ready** (chunk count &gt; 0).
-4. Open **Chat** and ask: *What authentication mechanism does the product use?*
-5. Confirm the answer mentions OAuth 2.0 / PKCE.
-6. Expand **Sources** — filename, page/section, excerpt, score.
-7. Upload `product_technical_specification_v2.md`. Open **Compare**, select v1 and v2, run comparison.
-8. Open the document page → **Executive summary**.
-9. Open **Insights** → extract insights and generate action items.
+* API keys remain on the backend
+* API secrets are never exposed to the browser
+* Upload extensions are allowlisted
+* Upload size is restricted
+* Filenames are sanitized
+* Path traversal is prevented
+* Uploaded files are never executed
+* CORS is restricted to configured origins
+* API errors avoid exposing internal stack traces
 
-## Screenshots
+The application is designed as a portfolio project and would require additional security and infrastructure work before handling sensitive production data.
 
-Place captures in `docs/screenshots/` (see the README in that folder). Suggested: dashboard, documents, chat with citations, compare table.
+---
 
-## Security notes
+# 📈 Evaluation
 
-- API keys stay in backend environment variables.
-- Uploads are extension-allowlisted, size-capped, and filename-sanitized (no path traversal).
-- Files are never executed or passed to a shell.
-- CORS is origin-restricted.
-- Unhandled exceptions return a generic message — no stack traces in the API JSON.
+The project includes an evaluation structure for measuring:
 
-## Future improvements
+* Retrieval hit rate
+* Answer relevance
+* Citation presence
+* Unsupported-question refusal
 
-- PostgreSQL + multi-user authentication
-- Hybrid search (BM25 + vectors) and a cross-encoder reranker
-- OCR / multimodal PDFs
-- Celery or RQ workers instead of FastAPI BackgroundTasks
-- Persistent summary cache and an evaluation harness with labeled gold answers
-- Tenant isolation and encryption at rest for uploaded files
+The system can be evaluated with mock providers for deterministic testing and configured with a real LLM provider for live evaluation.
 
-## Interview notes
+---
 
-See [INTERVIEW.md](./INTERVIEW.md) for implementation-grounded answers to common GenAI interview questions.
+# 🖥️ Demo Flow
 
-## Resume bullets
+A typical demonstration looks like this:
 
-- Built IntelliDocs, a Generative AI RAG assistant in Python/FastAPI that chunks PDFs and text, embeds via a swappable provider layer (mock/offline or OpenAI-compatible API), and retrieves context from a pluggable vector store (built-in or ChromaDB) before calling an LLM.
-- Implemented cited Q&A, semantic search, document comparison, structured insight extraction, and action-item generation over REST APIs with provider-agnostic LLM and embedding layers.
-- Shipped a Next.js/TypeScript SaaS UI (upload pipeline, streaming chat, light/dark mode) backed by SQLite metadata and production-minded upload validation.
-#   I n t e l l i d o c  
- 
+### 1. Upload a document
+
+Upload:
+
+```text
+product_technical_specification.md
+```
+
+### 2. Wait for processing
+
+The document is:
+
+```text
+Extracted
+   ↓
+Chunked
+   ↓
+Embedded
+   ↓
+Indexed
+```
+
+### 3. Ask a question
+
+Example:
+
+> What authentication mechanism does the product use?
+
+### 4. Receive a grounded response
+
+The system retrieves the relevant section and generates an answer.
+
+### 5. Verify the sources
+
+Open the **Sources** section to see:
+
+```text
+Filename
+Page / Section
+Excerpt
+Similarity Score
+```
+
+### 6. Explore other AI features
+
+You can also demonstrate:
+
+* Executive Summary
+* Semantic Search
+* Document Comparison
+* Insight Extraction
+* Action Items
+
+---
+
+# 📚 Sample Documents
+
+The repository includes original sample documents for demonstrating the application:
+
+```text
+data/sample_documents/
+├── software_project_requirements.md
+├── employee_handbook.md
+├── product_technical_specification.md
+└── product_technical_specification_v2.md
+```
+
+The two technical specification versions can be used to demonstrate document comparison.
+
+---
+
+# 🎯 What This Project Demonstrates
+
+IntelliDocs was designed to demonstrate practical GenAI engineering concepts rather than simply wrapping an LLM API in a chat interface.
+
+### GenAI
+
+* Retrieval-Augmented Generation
+* Embeddings
+* Vector search
+* Prompt engineering
+* Grounded generation
+* Hallucination mitigation
+* Source attribution
+* Structured LLM outputs
+
+### Backend Engineering
+
+* FastAPI
+* REST API design
+* SQLAlchemy
+* Provider abstraction
+* Modular architecture
+* Error handling
+* Automated testing
+
+### Frontend Engineering
+
+* Next.js
+* React
+* TypeScript
+* Responsive UI
+* Streaming interfaces
+* API integration
+
+---
+
+# 🔮 Future Improvements
+
+Potential production-oriented improvements include:
+
+* PostgreSQL
+* Multi-user authentication
+* Tenant isolation
+* Hybrid BM25 + vector search
+* Cross-encoder reranking
+* OCR for scanned documents
+* Multimodal document processing
+* Background workers using Celery or RQ
+* Persistent caching
+* Improved evaluation datasets
+* Encryption at rest
+* Cloud object storage
+
+---
+
+# 👩‍💻 Author
+
+**Bhumika Prakash Raut**
+
+B.Tech Computer Science Engineering
+MIT ADT University, Pune
+
+**GitHub:**
+https://github.com/Bhumika-Raut
+
+**LinkedIn:**
+https://linkedin.com/in/bhumika-raut-10b078295
+
+---
+
+## ⭐ Project Highlight
+
+**IntelliDocs is a portfolio project demonstrating an end-to-end RAG architecture — from document ingestion and chunking to embeddings, vector retrieval, grounded LLM generation, and source attribution.**
